@@ -15,6 +15,7 @@ class WebSensorData {
     this.accelerationY,
     this.accelerationZ,
     this.interval,
+    this.elapsedMs,
     this.latitude,
     this.longitude,
     this.accuracy,
@@ -27,6 +28,7 @@ class WebSensorData {
   final double? accelerationY;
   final double? accelerationZ;
   final double? interval;
+  final double? elapsedMs;
   final double? latitude;
   final double? longitude;
   final double? accuracy;
@@ -82,6 +84,7 @@ class WebSensorReader {
         accelerationY: acceleration.y,
         accelerationZ: acceleration.z,
         interval: motion.interval,
+        elapsedMs: motion.timeStamp,
       ));
     }).toJS;
     web.window.addEventListener('devicemotion', _motionListener);
@@ -130,4 +133,19 @@ class WebSensorReader {
     _positionListener = null;
     _positionErrorListener = null;
   }
+}
+
+void downloadSensorCsv(String contents, String filename) {
+  final blob = web.Blob(
+    [contents.toJS].toJS,
+    web.BlobPropertyBag(type: 'text/csv;charset=utf-8'),
+  );
+  final objectUrl = web.URL.createObjectURL(blob);
+  final anchor = web.HTMLAnchorElement()
+    ..href = objectUrl
+    ..download = filename;
+  web.document.body?.append(anchor);
+  anchor.click();
+  anchor.remove();
+  Timer(const Duration(seconds: 1), () => web.URL.revokeObjectURL(objectUrl));
 }

@@ -48,11 +48,17 @@ class _SensorPageState extends State<SensorPage> {
   double? _accuracy;
   String? _error;
   bool _isListening = false;
+  final List<AccelerationSample> _samples = [];
+  DateTime? _recordingStartedAt;
+  double? _firstEventElapsedMs;
 
   Future<void> _startListening() async {
     setState(() {
       _error = null;
       _isListening = true;
+      _samples.clear();
+      _recordingStartedAt = DateTime.now();
+      _firstEventElapsedMs = null;
     });
 
     if (kIsWeb) {
@@ -73,6 +79,22 @@ class _SensorPageState extends State<SensorPage> {
               _x = data.accelerationX;
               _y = data.accelerationY;
               _z = data.accelerationZ;
+              if (data.accelerationX != null &&
+                  data.accelerationY != null &&
+                  data.accelerationZ != null) {
+                final elapsedMs = data.elapsedMs;
+                _firstEventElapsedMs ??= elapsedMs;
+                _samples.add(AccelerationSample(
+                  timestamp: DateTime.now().toIso8601String(),
+                  elapsedMs: elapsedMs != null && _firstEventElapsedMs != null
+                      ? elapsedMs - _firstEventElapsedMs!
+                      : 0,
+                  intervalMs: data.interval ?? 0,
+                  x: data.accelerationX!,
+                  y: data.accelerationY!,
+                  z: data.accelerationZ!,
+                ));
+              }
             }
             if (data.latitude != null ||
                 data.longitude != null ||
@@ -132,6 +154,29 @@ class _SensorPageState extends State<SensorPage> {
     _subscription = null;
     if (!mounted) return;
     setState(() => _isListening = false);
+  }
+
+  void _downloadCsv() {
+    if (_samples.isEmpty) return;
+    final lines = <String>[
+      'timestamp_local,elapsed_ms,event_interval_ms,x_m_s2,y_m_s2,z_m_s2',
+      ..._samples.map((sample) => [
+            sample.timestamp,
+            sample.elapsedMs.toStringAsFixed(3),
+            sample.intervalMs.toStringAsFixed(3),
+            sample.x.toStringAsFixed(6),
+            sample.y.toStringAsFixed(6),
+            sample.z.toStringAsFixed(6),
+          ].join(',')),
+    ];
+    final startedAt = _recordingStartedAt ?? DateTime.now();
+    final filename = 'acceleration_${startedAt.year}'
+        '${startedAt.month.toString().padLeft(2, '0')}'
+        '${startedAt.day.toString().padLeft(2, '0')}_'
+        '${startedAt.hour.toString().padLeft(2, '0')}'
+        '${startedAt.minute.toString().padLeft(2, '0')}'
+        '${startedAt.second.toString().padLeft(2, '0')}.csv';
+    downloadSensorCsv('\uFEFF${lines.join('\r\n')}\r\n', filename);
   }
 
   @override
@@ -213,6 +258,19 @@ class _SensorPageState extends State<SensorPage> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
+              if (kIsWeb && _samples.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('記録サンプル数: ${_samples.length}'),
+                Text(
+                  'イベント間隔: ${_samples.last.intervalMs.toStringAsFixed(1)} ms',
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _downloadCsv,
+                  icon: const Icon(Icons.download),
+                  label: const Text('CSVをダウンロード'),
+                ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Text(
@@ -233,6 +291,24 @@ class _SensorPageState extends State<SensorPage> {
       ),
     );
   }
+}
+
+class AccelerationSample {
+  const AccelerationSample({
+    required this.timestamp,
+    required this.elapsedMs,
+    required this.intervalMs,
+    required this.x,
+    required this.y,
+    required this.z,
+  });
+
+  final String timestamp;
+  final double elapsedMs;
+  final double intervalMs;
+  final double x;
+  final double y;
+  final double z;
 }
 
 class _SensorValue extends StatelessWidget {

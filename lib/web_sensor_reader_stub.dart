@@ -9,6 +9,7 @@ class WebSensorData {
     this.accelerationY,
     this.accelerationZ,
     this.interval,
+    this.elapsedMs,
     this.latitude,
     this.longitude,
     this.accuracy,
@@ -21,6 +22,7 @@ class WebSensorData {
   final double? accelerationY;
   final double? accelerationZ;
   final double? interval;
+  final double? elapsedMs;
   final double? latitude;
   final double? longitude;
   final double? accuracy;
@@ -33,3 +35,5 @@ class WebSensorReader {
 
   void stop() {}
 }
+
+void downloadSensorCsv(String contents, String filename) {}
