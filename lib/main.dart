@@ -120,7 +120,7 @@ class _SensorPageState extends State<SensorPage> {
           _webReader?.stop();
         });
       } catch (error) {
-        setState(() => _error = 'ブラウザーAPIを開始できませんでした: $error');
+        setState(() => _error = 'APIを開始できませんでした: $error');
       }
       return;
     }
