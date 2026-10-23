@@ -156,8 +156,57 @@ class _SensorPageState extends State<SensorPage> {
     setState(() => _isListening = false);
   }
 
-  void _downloadCsv() {
+  Future<void> _downloadCsv() async {
     if (_samples.isEmpty) return;
+
+    final startedAt = _recordingStartedAt ?? DateTime.now();
+    final defaultFilename = 'acceleration_${startedAt.year}'
+        '${startedAt.month.toString().padLeft(2, '0')}'
+        '${startedAt.day.toString().padLeft(2, '0')}_'
+        '${startedAt.hour.toString().padLeft(2, '0')}'
+        '${startedAt.minute.toString().padLeft(2, '0')}'
+        '${startedAt.second.toString().padLeft(2, '0')}';
+    final filenameController = TextEditingController(text: defaultFilename);
+    final enteredFilename = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('CSVファイル名'),
+        content: TextField(
+          controller: filenameController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'ファイル名',
+            suffixText: '.csv',
+            hintText: '例: walking_01',
+          ),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(filenameController.text),
+            child: const Text('ダウンロード'),
+          ),
+        ],
+      ),
+    );
+    filenameController.dispose();
+    if (enteredFilename == null) return;
+
+    var filename = enteredFilename.trim();
+    if (filename.toLowerCase().endsWith('.csv')) {
+      filename = filename.substring(0, filename.length - 4);
+    }
+    filename = filename
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .replaceAll(RegExp(r'[. ]+$'), '')
+        .trim();
+    if (filename.isEmpty) filename = defaultFilename;
+
     final lines = <String>[
       'timestamp_local,elapsed_ms,event_interval_ms,x_m_s2,y_m_s2,z_m_s2',
       ..._samples.map((sample) => [
@@ -169,14 +218,7 @@ class _SensorPageState extends State<SensorPage> {
             sample.z.toStringAsFixed(6),
           ].join(',')),
     ];
-    final startedAt = _recordingStartedAt ?? DateTime.now();
-    final filename = 'acceleration_${startedAt.year}'
-        '${startedAt.month.toString().padLeft(2, '0')}'
-        '${startedAt.day.toString().padLeft(2, '0')}_'
-        '${startedAt.hour.toString().padLeft(2, '0')}'
-        '${startedAt.minute.toString().padLeft(2, '0')}'
-        '${startedAt.second.toString().padLeft(2, '0')}.csv';
-    downloadSensorCsv('\uFEFF${lines.join('\r\n')}\r\n', filename);
+    downloadSensorCsv('\uFEFF${lines.join('\r\n')}\r\n', '$filename.csv');
   }
 
   @override
