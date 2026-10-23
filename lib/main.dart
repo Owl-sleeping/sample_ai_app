@@ -156,6 +156,26 @@ class _SensorPageState extends State<SensorPage> {
     setState(() => _isListening = false);
   }
 
+  Future<void> _resetMeasurement() async {
+    await _stopListening();
+    if (!mounted) return;
+    setState(() {
+      _samples.clear();
+      _recordingStartedAt = null;
+      _firstEventElapsedMs = null;
+      _x = null;
+      _y = null;
+      _z = null;
+      _alpha = null;
+      _beta = null;
+      _gamma = null;
+      _latitude = null;
+      _longitude = null;
+      _accuracy = null;
+      _error = null;
+    });
+  }
+
   Future<void> _downloadCsv() async {
     if (_samples.isEmpty) return;
 
@@ -327,6 +347,14 @@ class _SensorPageState extends State<SensorPage> {
                 icon: Icon(_isListening ? Icons.stop : Icons.play_arrow),
                 label: Text(_isListening ? '計測を停止' : '計測を開始'),
               ),
+              if (kIsWeb && _samples.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _resetMeasurement,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('計測をリセット'),
+                ),
+              ],
             ],
           ),
         ),
