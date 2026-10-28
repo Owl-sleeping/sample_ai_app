@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'activity_model.dart';
 import 'web_sensor_reader_stub.dart'
     if (dart.library.js_interop) 'web_sensor_reader_web.dart';
 
@@ -16,24 +17,89 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'センサー確認',
+      title: 'センサー確誁E,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      home: const SensorPage(),
+      home: const HomePage(),
     );
   }
 }
 
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  void _openPage(BuildContext context, SensorPageMode mode) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SensorPage(mode: mode),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('センサーアプリ')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.all(24),
+            children: [
+              Text(
+                '使ぁE��ぁE���Eを選んでください',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 20),
+              Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: const Icon(Icons.sensors, size: 36),
+                  title: const Text('加速度を計測する'),
+                  subtitle: const Text('センサー値を表示し、CSVに記録しまぁE),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openPage(context, SensorPageMode.measurement),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: const Icon(Icons.directions_run, size: 36),
+                  title: const Text('行動を予測する'),
+                  subtitle: const Text('静止・歩行�E走行をリアルタイム表示します（試験中�E�E),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openPage(context, SensorPageMode.prediction),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum SensorPageMode { measurement, prediction }
+
 class SensorPage extends StatefulWidget {
-  const SensorPage({super.key});
+  const SensorPage({super.key, required this.mode});
+
+  final SensorPageMode mode;
 
   @override
   State<SensorPage> createState() => _SensorPageState();
 }
 
 class _SensorPageState extends State<SensorPage> {
+  bool get _isPredictionMode => widget.mode == SensorPageMode.prediction;
+
+  late final Future<ActivityModel> _activityModelFuture = ActivityModel.load();
+  final Stopwatch _classificationClock = Stopwatch();
   StreamSubscription<AccelerometerEvent>? _subscription;
   StreamSubscription<WebSensorData>? _webSubscription;
   WebSensorReader? _webReader;
@@ -46,6 +112,8 @@ class _SensorPageState extends State<SensorPage> {
   double? _latitude;
   double? _longitude;
   double? _accuracy;
+  ActivityModel? _activityModel;
+  ActivityPrediction? _activityPrediction;
   String? _error;
   bool _isListening = false;
   final List<AccelerationSample> _samples = [];
@@ -53,9 +121,29 @@ class _SensorPageState extends State<SensorPage> {
   double? _firstEventElapsedMs;
 
   Future<void> _startListening() async {
+    if (_isPredictionMode) {
+      late final ActivityModel model;
+      try {
+        model = await _activityModelFuture;
+      } catch (error) {
+        if (!mounted) return;
+        setState(() => _error = '行動判定モチE��を読み込めませんでした: $error');
+        return;
+      }
+
+      _activityModel = model;
+      model.reset();
+    } else {
+      _activityModel = null;
+    }
+
+    _classificationClock
+      ..reset()
+      ..start();
     setState(() {
       _error = null;
       _isListening = true;
+      _activityPrediction = null;
       _samples.clear();
       _recordingStartedAt = DateTime.now();
       _firstEventElapsedMs = null;
@@ -72,33 +160,39 @@ class _SensorPageState extends State<SensorPage> {
               _alpha = data.alpha;
               _beta = data.beta;
               _gamma = data.gamma;
+
             }
-            if (data.accelerationX != null ||
-                data.accelerationY != null ||
-                data.accelerationZ != null) {
+            if (data.accelerationX != null || data.accelerationY != null || data.accelerationZ != null) {
               _x = data.accelerationX;
               _y = data.accelerationY;
               _z = data.accelerationZ;
-              if (data.accelerationX != null &&
-                  data.accelerationY != null &&
-                  data.accelerationZ != null) {
+
+              if (data.accelerationX != null && data.accelerationY != null && data.accelerationZ != null) {
                 final elapsedMs = data.elapsedMs;
                 _firstEventElapsedMs ??= elapsedMs;
-                _samples.add(AccelerationSample(
-                  timestamp: DateTime.now().toIso8601String(),
-                  elapsedMs: elapsedMs != null && _firstEventElapsedMs != null
-                      ? elapsedMs - _firstEventElapsedMs!
-                      : 0,
-                  intervalMs: data.interval ?? 0,
-                  x: data.accelerationX!,
-                  y: data.accelerationY!,
-                  z: data.accelerationZ!,
-                ));
+                if (_isPredictionMode) {
+                  final prediction = _activityModel?.addSample(
+                    timeMs: _classificationClock.elapsedMicroseconds / 1000.0,
+                    x: data.accelerationX!,
+                    y: data.accelerationY!,
+                    z: data.accelerationZ!,
+                  );
+                  if (prediction != null) _activityPrediction = prediction;
+                } else {
+                  _samples.add(AccelerationSample(
+                    timestamp: DateTime.now().toIso8601String(),
+                    elapsedMs: elapsedMs != null && _firstEventElapsedMs != null
+                        ? elapsedMs - _firstEventElapsedMs!
+                        : 0,
+                    intervalMs: data.interval ?? 0,
+                    x: data.accelerationX!,
+                    y: data.accelerationY!,
+                    z: data.accelerationZ!,
+                  ));
+                }
               }
             }
-            if (data.latitude != null ||
-                data.longitude != null ||
-                data.accuracy != null) {
+            if (data.latitude != null || data.longitude != null || data.accuracy != null) {
               _latitude = data.latitude;
               _longitude = data.longitude;
               _accuracy = data.accuracy;
@@ -107,7 +201,7 @@ class _SensorPageState extends State<SensorPage> {
         },
         onError: (Object error) {
           if (!mounted) return;
-          setState(() => _error = '位置情報を取得できませんでした: $error');
+          setState(() => _error = '位置惁E��を取得できませんでした: $error');
         },
       );
       try {
@@ -117,10 +211,16 @@ class _SensorPageState extends State<SensorPage> {
             _error = error.toString();
             _isListening = false;
           });
+          _classificationClock.stop();
           _webReader?.stop();
         });
       } catch (error) {
-        setState(() => _error = 'APIを開始できませんでした: $error');
+        setState(() {
+          _error = 'APIを開始できませんでした: $error';
+          _isListening = false;
+        });
+        _classificationClock.stop();
+        reader.stop();
       }
       return;
     }
@@ -132,6 +232,15 @@ class _SensorPageState extends State<SensorPage> {
           _x = event.x;
           _y = event.y;
           _z = event.z;
+          if (_isPredictionMode) {
+            final prediction = _activityModel?.addSample(
+              timeMs: _classificationClock.elapsedMicroseconds / 1000.0,
+              x: event.x,
+              y: event.y,
+              z: event.z,
+            );
+            if (prediction != null) _activityPrediction = prediction;
+          }
         });
       },
       onError: (Object error) {
@@ -140,6 +249,7 @@ class _SensorPageState extends State<SensorPage> {
           _error = 'センサーを読み取れませんでした: $error';
           _isListening = false;
         });
+        _classificationClock.stop();
       },
       cancelOnError: true,
     );
@@ -152,6 +262,7 @@ class _SensorPageState extends State<SensorPage> {
     _webSubscription = null;
     await _subscription?.cancel();
     _subscription = null;
+    _classificationClock.stop();
     if (!mounted) return;
     setState(() => _isListening = false);
   }
@@ -161,6 +272,8 @@ class _SensorPageState extends State<SensorPage> {
     if (!mounted) return;
     setState(() {
       _samples.clear();
+      _activityModel?.reset();
+      _activityPrediction = null;
       _recordingStartedAt = null;
       _firstEventElapsedMs = null;
       _x = null;
@@ -190,14 +303,14 @@ class _SensorPageState extends State<SensorPage> {
     final enteredFilename = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('CSVファイル名'),
+        title: const Text('CSVファイル吁E),
         content: TextField(
           controller: filenameController,
           autofocus: true,
           decoration: const InputDecoration(
-            labelText: 'ファイル名',
+            labelText: 'ファイル吁E,
             suffixText: '.csv',
-            hintText: '例: walking_01',
+            hintText: '侁E walking_01',
           ),
           onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
         ),
@@ -209,7 +322,7 @@ class _SensorPageState extends State<SensorPage> {
           FilledButton(
             onPressed: () =>
                 Navigator.of(dialogContext).pop(filenameController.text),
-            child: const Text('ダウンロード'),
+            child: const Text('ダウンローチE),
           ),
         ],
       ),
@@ -243,6 +356,7 @@ class _SensorPageState extends State<SensorPage> {
 
   @override
   void dispose() {
+    _classificationClock.stop();
     _webReader?.stop();
     _webSubscription?.cancel();
     _subscription?.cancel();
@@ -253,7 +367,9 @@ class _SensorPageState extends State<SensorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(kIsWeb ? 'F12センサー確認' : '加速度センサー'),
+        title: Text(
+          _isPredictionMode ? '行動予測�E�試験中�E�E : '加速度の計測',
+        ),
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -266,13 +382,49 @@ class _SensorPageState extends State<SensorPage> {
               Text(
                 _isListening
                     ? kIsWeb
-                        ? 'F12の値を読み取り中'
+                        ? _isPredictionMode
+                            ? 'センサーを読み取り、行動を判定中'
+                            : 'F12の値を読み取り中'
                         : 'センサーを読み取り中'
-                    : '計測を開始してください',
+                    : _isPredictionMode
+                        ? '予測を開始してください'
+                        : '計測を開始してください',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 24),
-              if (kIsWeb) ...[
+              if (_isPredictionMode) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Text(
+                          '現在の行動',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _activityPrediction?.label ??
+                              (_isListening ? '判定データを収雁E��…' : '未計測'),
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        if (_activityPrediction != null)
+                          Text(
+                            'モチE��投票割吁E ${(_activityPrediction!.confidence * 100).toStringAsFixed(0)}%',
+                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '1秒窓�E0.25秒ごとに更新',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
+                _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
+                _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
+              ] else if (kIsWeb) ...[
                 _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
                 _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
                 _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
@@ -301,12 +453,12 @@ class _SensorPageState extends State<SensorPage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'F12 → Ctrl+Shift+P →「Show Sensors」→ Orientation / Location を設定',
+                  'F12 ↁECtrl+Shift+P →「Show Sensors」�E Orientation / Location を設宁E,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 Text(
-                  '位置情報はブラウザーの許可が必要です。localhostで開いてください。',
+                  '位置惁E��はブラウザーの許可が忁E��です。localhostで開いてください、E,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -316,21 +468,21 @@ class _SensorPageState extends State<SensorPage> {
                 _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
                 const SizedBox(height: 12),
                 Text(
-                  '単位: m/s²（重力を含む値）',
+                  '単佁E m/s²�E�重力を含む値�E�E,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-              if (kIsWeb && _samples.isNotEmpty) ...[
+              if (!_isPredictionMode && kIsWeb && _samples.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text('記録サンプル数: ${_samples.length}'),
                 Text(
-                  'イベント間隔: ${_samples.last.intervalMs.toStringAsFixed(1)} ms',
+                  'イベント間隁E ${_samples.last.intervalMs.toStringAsFixed(1)} ms',
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _downloadCsv,
                   icon: const Icon(Icons.download),
-                  label: const Text('CSVをダウンロード'),
+                  label: const Text('CSVをダウンローチE),
                 ),
               ],
               if (_error != null) ...[
@@ -345,14 +497,20 @@ class _SensorPageState extends State<SensorPage> {
               FilledButton.icon(
                 onPressed: _isListening ? _stopListening : _startListening,
                 icon: Icon(_isListening ? Icons.stop : Icons.play_arrow),
-                label: Text(_isListening ? '計測を停止' : '計測を開始'),
+                label: Text(
+                  _isListening
+                      ? '停止'
+                      : _isPredictionMode
+                          ? '行動予測を開姁E
+                          : '計測を開姁E,
+                ),
               ),
-              if (kIsWeb && _samples.isNotEmpty) ...[
+              if (!_isPredictionMode && kIsWeb && _samples.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _resetMeasurement,
                   icon: const Icon(Icons.restart_alt),
-                  label: const Text('計測をリセット'),
+                  label: const Text('計測をリセチE��'),
                 ),
               ],
             ],
