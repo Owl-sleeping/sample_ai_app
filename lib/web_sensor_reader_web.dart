@@ -19,6 +19,8 @@ class WebSensorData {
     this.latitude,
     this.longitude,
     this.accuracy,
+    this.speedMetersPerSecond,
+    this.positionTimestampMs,
   });
 
   final double? alpha;
@@ -32,6 +34,8 @@ class WebSensorData {
   final double? latitude;
   final double? longitude;
   final double? accuracy;
+  final double? speedMetersPerSecond;
+  final double? positionTimestampMs;
 }
 
 class WebSensorReader {
@@ -95,6 +99,8 @@ class WebSensorReader {
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
         accuracy: coordinates.accuracy,
+        speedMetersPerSecond: coordinates.speed,
+        positionTimestampMs: position.timestamp.toDouble(),
       ));
     }).toJS;
     _positionErrorListener = ((web.GeolocationPositionError error) {
@@ -105,7 +111,7 @@ class WebSensorReader {
       _positionListener!,
       _positionErrorListener,
       web.PositionOptions(
-        enableHighAccuracy: false,
+        enableHighAccuracy: true,
         maximumAge: 0,
         timeout: 10000,
       ),

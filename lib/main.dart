@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'activity_model.dart';
+import 'location_movement_checker.dart';
 import 'web_sensor_reader_stub.dart'
     if (dart.library.js_interop) 'web_sensor_reader_web.dart';
 
@@ -114,6 +115,10 @@ class _SensorPageState extends State<SensorPage> {
   double? _accuracy;
   ActivityModel? _activityModel;
   ActivityPrediction? _activityPrediction;
+  final LocationMovementChecker _gpsMovementChecker = LocationMovementChecker();
+  GpsMovementResult _gpsMovementResult = const GpsMovementResult(
+    status: GpsMovementStatus.waiting,
+  );
   final List<_ActivityHistoryPoint> _activityHistory = [];
   String? _error;
   bool _isListening = false;
@@ -146,6 +151,10 @@ class _SensorPageState extends State<SensorPage> {
       _isListening = true;
       _activityPrediction = null;
       _activityHistory.clear();
+      _gpsMovementChecker.reset();
+      _gpsMovementResult = const GpsMovementResult(
+        status: GpsMovementStatus.waiting,
+      );
       _samples.clear();
       _recordingStartedAt = DateTime.now();
       _firstEventElapsedMs = null;
@@ -198,6 +207,18 @@ class _SensorPageState extends State<SensorPage> {
               _latitude = data.latitude;
               _longitude = data.longitude;
               _accuracy = data.accuracy;
+              if (_isPredictionMode &&
+                  data.latitude != null &&
+                  data.longitude != null) {
+                _gpsMovementResult = _gpsMovementChecker.update(
+                  latitude: data.latitude!,
+                  longitude: data.longitude!,
+                  accuracyMeters: data.accuracy,
+                  speedMetersPerSecond: data.speedMetersPerSecond,
+                  timestampMilliseconds: data.positionTimestampMs ??
+                      DateTime.now().millisecondsSinceEpoch.toDouble(),
+                );
+              }
             }
           });
         },
@@ -294,6 +315,10 @@ class _SensorPageState extends State<SensorPage> {
       _activityPrediction = null;
       _recordingStartedAt = null;
       _firstEventElapsedMs = null;
+      _gpsMovementChecker.reset();
+      _gpsMovementResult = const GpsMovementResult(
+        status: GpsMovementStatus.waiting,
+      );
       _x = null;
       _y = null;
       _z = null;
@@ -381,6 +406,7 @@ class _SensorPageState extends State<SensorPage> {
     super.dispose();
   }
 
+// 計測予測テストページ
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -401,7 +427,7 @@ class _SensorPageState extends State<SensorPage> {
                 _isListening
                     ? kIsWeb
                         ? _isPredictionMode
-                            ? 'センサー値を読み取り、行動を判定中'
+                            ? '行動判定中'
                             : 'F12でセンサー値を読み取り中'
                         : 'センサー値を読み取り中'
                     : _isPredictionMode
@@ -431,13 +457,20 @@ class _SensorPageState extends State<SensorPage> {
                             'モデルの投票割合 ${(_activityPrediction!.confidence * 100).toStringAsFixed(0)}%',
                           ),
                         const SizedBox(height: 4),
+                        /*
                         Text(
                           '1秒窓を0.25秒ごとに更新',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
+                        */
                       ],
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                _GpsMovementCard(
+                  result: _gpsMovementResult,
+                  isWeb: kIsWeb,
                 ),
                 const SizedBox(height: 12),
                 _ActivityHistoryChart(
@@ -599,6 +632,86 @@ class _ActivityHistoryPoint {
 
   final double elapsedSeconds;
   final String label;
+}
+
+class _GpsMovementCard extends StatelessWidget {
+  const _GpsMovementCard({required this.result, required this.isWeb});
+
+  final GpsMovementResult result;
+  final bool isWeb;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusText = !isWeb
+        ? 'この試作ではWeb版のGPS補助のみ利用できます'
+        : switch (result.status) {
+            GpsMovementStatus.moving => 'GPSで移動を確認',
+            GpsMovementStatus.stationary => 'GPSではほぼ停止',
+            GpsMovementStatus.inaccurate => 'GPSの精度不足',
+            GpsMovementStatus.waiting => 'GPSで移動を確認中',
+          };
+    final detail = !isWeb
+        ? '行動ラベルは加速度モデルの予測を表示します。'
+        : switch (result.status) {
+            GpsMovementStatus.moving => '位置の変化が続いています。',
+            GpsMovementStatus.stationary => '位置の変化が小さい状態が続いています。',
+            GpsMovementStatus.inaccurate =>
+              '測位誤差が大きいため、GPSを判定から外しています。',
+            GpsMovementStatus.waiting =>
+              '十分な移動量または速度が得られるまで確認します。',
+          };
+    final statusColor = switch (result.status) {
+      GpsMovementStatus.moving => Colors.green.shade700,
+      GpsMovementStatus.stationary => Colors.blueGrey,
+      GpsMovementStatus.inaccurate => Colors.orange.shade800,
+      GpsMovementStatus.waiting => Colors.blueGrey,
+    };
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('GPSによる移動確認',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.location_searching, color: statusColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    statusText,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: statusColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(detail, style: Theme.of(context).textTheme.bodySmall),
+            if (isWeb && result.speedMetersPerSecond != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'GPS速度の目安: '
+                '${(result.speedMetersPerSecond! * 3.6).toStringAsFixed(1)} km/h',
+              ),
+            ],
+            if (isWeb && result.accuracyMeters != null)
+              Text('位置精度: ±${result.accuracyMeters!.toStringAsFixed(0)} m'),
+            const SizedBox(height: 4),
+            Text(
+              'GPSは補助情報です。行動ラベルは加速度モデルで判定します。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ActivityHistoryChart extends StatelessWidget {

@@ -13,6 +13,8 @@ class WebSensorData {
     this.latitude,
     this.longitude,
     this.accuracy,
+    this.speedMetersPerSecond,
+    this.positionTimestampMs,
   });
 
   final double? alpha;
@@ -26,6 +28,8 @@ class WebSensorData {
   final double? latitude;
   final double? longitude;
   final double? accuracy;
+  final double? speedMetersPerSecond;
+  final double? positionTimestampMs;
 }
 
 class WebSensorReader {
