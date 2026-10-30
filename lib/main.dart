@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:sensors_plus/sensors_plus.dart';
 import 'activity_model.dart';
 import 'location_movement_checker.dart';
@@ -32,11 +34,9 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   void _openPage(BuildContext context, SensorPageMode mode) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SensorPage(mode: mode),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => SensorPage(mode: mode)));
   }
 
   @override
@@ -122,9 +122,110 @@ class _SensorPageState extends State<SensorPage> {
   final List<_ActivityHistoryPoint> _activityHistory = [];
   String? _error;
   bool _isListening = false;
+  bool _showMap = true;
+  bool _showPrediction = true;
+  bool _showGpsStatus = true;
+  bool _showHistory = true;
+  bool _showX = true;
+  bool _showY = true;
+  bool _showZ = true;
+  bool _showGpsSpeed = true;
+  bool _showGpsAccuracy = true;
   final List<AccelerationSample> _samples = [];
   DateTime? _recordingStartedAt;
   double? _firstEventElapsedMs;
+
+  Future<void> _showDisplayOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('表示する項目', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  _visibilitySwitch(
+                    '現在地マップ',
+                    _showMap,
+                    (v) => _showMap = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    '行動予測',
+                    _showPrediction,
+                    (v) => _showPrediction = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    'GPS移動確認',
+                    _showGpsStatus,
+                    (v) => _showGpsStatus = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    'GPS速度',
+                    _showGpsSpeed,
+                    (v) => _showGpsSpeed = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    'GPS精度',
+                    _showGpsAccuracy,
+                    (v) => _showGpsAccuracy = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    '行動履歴グラフ',
+                    _showHistory,
+                    (v) => _showHistory = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    '加速度 X',
+                    _showX,
+                    (v) => _showX = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    '加速度 Y',
+                    _showY,
+                    (v) => _showY = v,
+                    setSheetState,
+                  ),
+                  _visibilitySwitch(
+                    '加速度 Z',
+                    _showZ,
+                    (v) => _showZ = v,
+                    setSheetState,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _visibilitySwitch(
+    String title,
+    bool value,
+    void Function(bool) update,
+    StateSetter setSheetState,
+  ) => SwitchListTile.adaptive(
+    title: Text(title),
+    value: value,
+    contentPadding: EdgeInsets.zero,
+    onChanged: (next) {
+      setState(() => update(next));
+      setSheetState(() {});
+    },
+  );
 
   Future<void> _startListening() async {
     if (_isPredictionMode) {
@@ -171,14 +272,17 @@ class _SensorPageState extends State<SensorPage> {
               _alpha = data.alpha;
               _beta = data.beta;
               _gamma = data.gamma;
-
             }
-            if (data.accelerationX != null || data.accelerationY != null || data.accelerationZ != null) {
+            if (data.accelerationX != null ||
+                data.accelerationY != null ||
+                data.accelerationZ != null) {
               _x = data.accelerationX;
               _y = data.accelerationY;
               _z = data.accelerationZ;
 
-              if (data.accelerationX != null && data.accelerationY != null && data.accelerationZ != null) {
+              if (data.accelerationX != null &&
+                  data.accelerationY != null &&
+                  data.accelerationZ != null) {
                 final elapsedMs = data.elapsedMs;
                 _firstEventElapsedMs ??= elapsedMs;
                 if (_isPredictionMode) {
@@ -190,20 +294,25 @@ class _SensorPageState extends State<SensorPage> {
                   );
                   if (prediction != null) _recordPrediction(prediction);
                 } else {
-                  _samples.add(AccelerationSample(
-                    timestamp: DateTime.now().toIso8601String(),
-                    elapsedMs: elapsedMs != null && _firstEventElapsedMs != null
-                        ? elapsedMs - _firstEventElapsedMs!
-                        : 0,
-                    intervalMs: data.interval ?? 0,
-                    x: data.accelerationX!,
-                    y: data.accelerationY!,
-                    z: data.accelerationZ!,
-                  ));
+                  _samples.add(
+                    AccelerationSample(
+                      timestamp: DateTime.now().toIso8601String(),
+                      elapsedMs:
+                          elapsedMs != null && _firstEventElapsedMs != null
+                          ? elapsedMs - _firstEventElapsedMs!
+                          : 0,
+                      intervalMs: data.interval ?? 0,
+                      x: data.accelerationX!,
+                      y: data.accelerationY!,
+                      z: data.accelerationZ!,
+                    ),
+                  );
                 }
               }
             }
-            if (data.latitude != null || data.longitude != null || data.accuracy != null) {
+            if (data.latitude != null ||
+                data.longitude != null ||
+                data.accuracy != null) {
               _latitude = data.latitude;
               _longitude = data.longitude;
               _accuracy = data.accuracy;
@@ -215,7 +324,8 @@ class _SensorPageState extends State<SensorPage> {
                   longitude: data.longitude!,
                   accuracyMeters: data.accuracy,
                   speedMetersPerSecond: data.speedMetersPerSecond,
-                  timestampMilliseconds: data.positionTimestampMs ??
+                  timestampMilliseconds:
+                      data.positionTimestampMs ??
                       DateTime.now().millisecondsSinceEpoch.toDouble(),
                 );
               }
@@ -336,7 +446,8 @@ class _SensorPageState extends State<SensorPage> {
     if (_samples.isEmpty) return;
 
     final startedAt = _recordingStartedAt ?? DateTime.now();
-    final defaultFilename = 'acceleration_${startedAt.year}'
+    final defaultFilename =
+        'acceleration_${startedAt.year}'
         '${startedAt.month.toString().padLeft(2, '0')}'
         '${startedAt.day.toString().padLeft(2, '0')}_'
         '${startedAt.hour.toString().padLeft(2, '0')}'
@@ -385,14 +496,16 @@ class _SensorPageState extends State<SensorPage> {
 
     final lines = <String>[
       'timestamp_local,elapsed_ms,event_interval_ms,x_m_s2,y_m_s2,z_m_s2',
-      ..._samples.map((sample) => [
-            sample.timestamp,
-            sample.elapsedMs.toStringAsFixed(3),
-            sample.intervalMs.toStringAsFixed(3),
-            sample.x.toStringAsFixed(6),
-            sample.y.toStringAsFixed(6),
-            sample.z.toStringAsFixed(6),
-          ].join(',')),
+      ..._samples.map(
+        (sample) => [
+          sample.timestamp,
+          sample.elapsedMs.toStringAsFixed(3),
+          sample.intervalMs.toStringAsFixed(3),
+          sample.x.toStringAsFixed(6),
+          sample.y.toStringAsFixed(6),
+          sample.z.toStringAsFixed(6),
+        ].join(','),
+      ),
     ];
     downloadSensorCsv('\uFEFF${lines.join('\r\n')}\r\n', '$filename.csv');
   }
@@ -406,14 +519,20 @@ class _SensorPageState extends State<SensorPage> {
     super.dispose();
   }
 
-// 計測予測テストページ
+  // 計測予測テストページ
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _isPredictionMode ? '行動予測（試験中）' : '加速度の計測',
-        ),
+        title: Text(_isPredictionMode ? '行動予測（試験中）' : '加速度の計測'),
+        actions: [
+          if (_isPredictionMode)
+            IconButton(
+              tooltip: '表示項目',
+              onPressed: _showDisplayOptions,
+              icon: const Icon(Icons.tune),
+            ),
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -421,66 +540,80 @@ class _SensorPageState extends State<SensorPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              if (_isPredictionMode && _showMap) ...[
+                _CurrentLocationMap(
+                  latitude: _latitude,
+                  longitude: _longitude,
+                  accuracy: _accuracy,
+                  showAccuracy: _showGpsAccuracy,
+                ),
+                const SizedBox(height: 12),
+              ],
               Icon(kIsWeb ? Icons.sensors : Icons.screen_rotation, size: 48),
               const SizedBox(height: 12),
               Text(
                 _isListening
                     ? kIsWeb
-                        ? _isPredictionMode
-                            ? '行動判定中'
-                            : 'F12でセンサー値を読み取り中'
-                        : 'センサー値を読み取り中'
+                          ? _isPredictionMode
+                                ? '行動判定中'
+                                : 'F12でセンサー値を読み取り中'
+                          : 'センサー値を読み取り中'
                     : _isPredictionMode
-                        ? '予測を開始してください'
-                        : '計測を開始してください',
+                    ? '予測を開始してください'
+                    : '計測を開始してください',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 24),
               if (_isPredictionMode) ...[
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Text(
-                          '現在の行動',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _activityPrediction?.label ??
-                              (_isListening ? '判定データを収集中…' : '未計測'),
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        if (_activityPrediction != null)
+                if (_showPrediction)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
                           Text(
-                            'モデルの投票割合 ${(_activityPrediction!.confidence * 100).toStringAsFixed(0)}%',
+                            '現在の行動',
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                        const SizedBox(height: 4),
-                        /*
+                          const SizedBox(height: 8),
+                          Text(
+                            _activityPrediction?.label ??
+                                (_isListening ? '判定データを収集中…' : '未計測'),
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
+                          if (_activityPrediction != null)
+                            Text(
+                              'モデルの投票割合 ${(_activityPrediction!.confidence * 100).toStringAsFixed(0)}%',
+                            ),
+                          const SizedBox(height: 4),
+                          /*
                         Text(
                           '1秒窓を0.25秒ごとに更新',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         */
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                _GpsMovementCard(
-                  result: _gpsMovementResult,
-                  isWeb: kIsWeb,
-                ),
-                const SizedBox(height: 12),
-                _ActivityHistoryChart(
-                  points: List.unmodifiable(_activityHistory),
-                  currentElapsedSeconds:
-                      _classificationClock.elapsedMilliseconds / 1000.0,
-                ),
-                _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
-                _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
-                _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
+                if (_showGpsStatus) ...[
+                  const SizedBox(height: 12),
+                  _GpsMovementCard(
+                    result: _gpsMovementResult,
+                    isWeb: kIsWeb,
+                    showSpeed: _showGpsSpeed,
+                    showAccuracy: _showGpsAccuracy,
+                  ),
+                ],
+                if (_showHistory)
+                  _ActivityHistoryChart(
+                    points: List.unmodifiable(_activityHistory),
+                    currentElapsedSeconds:
+                        _classificationClock.elapsedMilliseconds / 1000.0,
+                  ),
+                if (_showX) _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
+                if (_showY) _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
+                if (_showZ) _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
               ] else if (kIsWeb) ...[
                 _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
                 _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
@@ -558,8 +691,8 @@ class _SensorPageState extends State<SensorPage> {
                   _isListening
                       ? '停止'
                       : _isPredictionMode
-                          ? '行動予測を開始'
-                          : '計測を開始',
+                      ? '行動予測を開始'
+                      : '計測を開始',
                 ),
               ),
               if (!_isPredictionMode && kIsWeb && _samples.isNotEmpty) ...[
@@ -573,6 +706,123 @@ class _SensorPageState extends State<SensorPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CurrentLocationMap extends StatefulWidget {
+  const _CurrentLocationMap({
+    required this.latitude,
+    required this.longitude,
+    required this.accuracy,
+    required this.showAccuracy,
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final double? accuracy;
+  final bool showAccuracy;
+
+  @override
+  State<_CurrentLocationMap> createState() => _CurrentLocationMapState();
+}
+
+class _CurrentLocationMapState extends State<_CurrentLocationMap> {
+  final MapController _controller = MapController();
+  bool _mapReady = false;
+  LatLng? _lastPosition;
+
+  LatLng? get _position {
+    final lat = widget.latitude;
+    final lon = widget.longitude;
+    if (lat == null || lon == null || !lat.isFinite || !lon.isFinite)
+      return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return LatLng(lat, lon);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CurrentLocationMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _moveToCurrentPosition();
+  }
+
+  void _moveToCurrentPosition() {
+    final position = _position;
+    if (!_mapReady || position == null || position == _lastPosition) return;
+    _lastPosition = position;
+    _controller.move(position, 17);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final position = _position;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.my_location, size: 18),
+                const SizedBox(width: 8),
+                Text('現在地マップ', style: Theme.of(context).textTheme.titleSmall),
+                const Spacer(),
+                if (widget.showAccuracy && widget.accuracy != null)
+                  Text('精度 約${widget.accuracy!.toStringAsFixed(0)} m'),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 220,
+            child: position == null
+                ? const ColoredBox(
+                    color: Color(0xFFE8EEF0),
+                    child: Center(child: Text('位置情報を待っています')),
+                  )
+                : FlutterMap(
+                    mapController: _controller,
+                    options: MapOptions(
+                      initialCenter: position,
+                      initialZoom: 17,
+                      onMapReady: () {
+                        _mapReady = true;
+                        _moveToCurrentPosition();
+                      },
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.example.sample_demo_app',
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: position,
+                            width: 44,
+                            height: 44,
+                            child: const Icon(
+                              Icons.location_pin,
+                              color: Colors.red,
+                              size: 42,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const RichAttributionWidget(
+                        attributions: [
+                          TextSourceAttribution('© OpenStreetMap contributors'),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -635,10 +885,17 @@ class _ActivityHistoryPoint {
 }
 
 class _GpsMovementCard extends StatelessWidget {
-  const _GpsMovementCard({required this.result, required this.isWeb});
+  const _GpsMovementCard({
+    required this.result,
+    required this.isWeb,
+    required this.showSpeed,
+    required this.showAccuracy,
+  });
 
   final GpsMovementResult result;
   final bool isWeb;
+  final bool showSpeed;
+  final bool showAccuracy;
 
   @override
   Widget build(BuildContext context) {
@@ -655,10 +912,8 @@ class _GpsMovementCard extends StatelessWidget {
         : switch (result.status) {
             GpsMovementStatus.moving => '位置の変化が続いています。',
             GpsMovementStatus.stationary => '位置の変化が小さい状態が続いています。',
-            GpsMovementStatus.inaccurate =>
-              '測位誤差が大きいため、GPSを判定から外しています。',
-            GpsMovementStatus.waiting =>
-              '十分な移動量または速度が得られるまで確認します。',
+            GpsMovementStatus.inaccurate => '測位誤差が大きいため、GPSを判定から外しています。',
+            GpsMovementStatus.waiting => '十分な移動量または速度が得られるまで確認します。',
           };
     final statusColor = switch (result.status) {
       GpsMovementStatus.moving => Colors.green.shade700,
@@ -673,8 +928,7 @@ class _GpsMovementCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('GPSによる移動確認',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text('GPSによる移動確認', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -684,23 +938,23 @@ class _GpsMovementCard extends StatelessWidget {
                   child: Text(
                     statusText,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: statusColor,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: statusColor,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             Text(detail, style: Theme.of(context).textTheme.bodySmall),
-            if (isWeb && result.speedMetersPerSecond != null) ...[
+            if (isWeb && showSpeed && result.speedMetersPerSecond != null) ...[
               const SizedBox(height: 8),
               Text(
                 'GPS速度の目安: '
                 '${(result.speedMetersPerSecond! * 3.6).toStringAsFixed(1)} km/h',
               ),
             ],
-            if (isWeb && result.accuracyMeters != null)
+            if (isWeb && showAccuracy && result.accuracyMeters != null)
               Text('位置精度: ±${result.accuracyMeters!.toStringAsFixed(0)} m'),
             const SizedBox(height: 4),
             Text(
@@ -791,19 +1045,14 @@ class _ActivityHistoryPainter extends CustomPainter {
 
     for (var level = 0; level <= 2; level++) {
       final y = plotBottom - (level / 2) * plotHeight;
-      canvas.drawLine(Offset(left, y), Offset(size.width - right, y), gridPaint);
-      _drawText(
-        canvas,
-        ['静止', '歩行', '走行'][level],
-        Offset(0, y - 8),
-        textColor,
+      canvas.drawLine(
+        Offset(left, y),
+        Offset(size.width - right, y),
+        gridPaint,
       );
+      _drawText(canvas, ['静止', '歩行', '走行'][level], Offset(0, y - 8), textColor);
     }
-    canvas.drawLine(
-      Offset(left, top),
-      Offset(left, plotBottom),
-      axisPaint,
-    );
+    canvas.drawLine(Offset(left, top), Offset(left, plotBottom), axisPaint);
 
     final endSeconds = currentElapsedSeconds > 1 ? currentElapsedSeconds : 1.0;
     final startSeconds = endSeconds > 60 ? endSeconds - 60 : 0.0;
@@ -811,7 +1060,11 @@ class _ActivityHistoryPainter extends CustomPainter {
     for (var tick = 0; tick <= 2; tick++) {
       final fraction = tick / 2;
       final x = left + fraction * plotWidth;
-      canvas.drawLine(Offset(x, plotBottom), Offset(x, plotBottom + 4), axisPaint);
+      canvas.drawLine(
+        Offset(x, plotBottom),
+        Offset(x, plotBottom + 4),
+        axisPaint,
+      );
       final seconds = startSeconds + visibleSeconds * fraction;
       _drawText(
         canvas,
@@ -832,19 +1085,18 @@ class _ActivityHistoryPainter extends CustomPainter {
     }
 
     double xFor(_ActivityHistoryPoint point) {
-      final fraction =
-          ((point.elapsedSeconds - startSeconds) / visibleSeconds)
-              .clamp(0.0, 1.0)
-              .toDouble();
+      final fraction = ((point.elapsedSeconds - startSeconds) / visibleSeconds)
+          .clamp(0.0, 1.0)
+          .toDouble();
       return left + fraction * plotWidth;
     }
 
     double? levelFor(String label) => switch (label) {
-          '静止' => 0,
-          '歩行' => 1,
-          '走行' => 2,
-          _ => null,
-        };
+      '静止' => 0,
+      '歩行' => 1,
+      '走行' => 2,
+      _ => null,
+    };
 
     double yFor(double level) => plotBottom - (level / 2) * plotHeight;
 
