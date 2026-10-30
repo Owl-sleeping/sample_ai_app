@@ -114,6 +114,7 @@ class _SensorPageState extends State<SensorPage> {
   double? _accuracy;
   ActivityModel? _activityModel;
   ActivityPrediction? _activityPrediction;
+  final List<_ActivityHistoryPoint> _activityHistory = [];
   String? _error;
   bool _isListening = false;
   final List<AccelerationSample> _samples = [];
@@ -144,6 +145,7 @@ class _SensorPageState extends State<SensorPage> {
       _error = null;
       _isListening = true;
       _activityPrediction = null;
+      _activityHistory.clear();
       _samples.clear();
       _recordingStartedAt = DateTime.now();
       _firstEventElapsedMs = null;
@@ -177,7 +179,7 @@ class _SensorPageState extends State<SensorPage> {
                     y: data.accelerationY!,
                     z: data.accelerationZ!,
                   );
-                  if (prediction != null) _activityPrediction = prediction;
+                  if (prediction != null) _recordPrediction(prediction);
                 } else {
                   _samples.add(AccelerationSample(
                     timestamp: DateTime.now().toIso8601String(),
@@ -239,7 +241,7 @@ class _SensorPageState extends State<SensorPage> {
               y: event.y,
               z: event.z,
             );
-            if (prediction != null) _activityPrediction = prediction;
+            if (prediction != null) _recordPrediction(prediction);
           }
         });
       },
@@ -267,11 +269,27 @@ class _SensorPageState extends State<SensorPage> {
     setState(() => _isListening = false);
   }
 
+  void _recordPrediction(ActivityPrediction prediction) {
+    final elapsedSeconds = _classificationClock.elapsedMilliseconds / 1000.0;
+    _activityPrediction = prediction;
+    _activityHistory.add(
+      _ActivityHistoryPoint(
+        elapsedSeconds: elapsedSeconds,
+        label: prediction.label,
+      ),
+    );
+    final oldestToKeep = elapsedSeconds - 60;
+    _activityHistory.removeWhere(
+      (point) => point.elapsedSeconds < oldestToKeep,
+    );
+  }
+
   Future<void> _resetMeasurement() async {
     await _stopListening();
     if (!mounted) return;
     setState(() {
       _samples.clear();
+      _activityHistory.clear();
       _activityModel?.reset();
       _activityPrediction = null;
       _recordingStartedAt = null;
@@ -421,6 +439,12 @@ class _SensorPageState extends State<SensorPage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+                _ActivityHistoryChart(
+                  points: List.unmodifiable(_activityHistory),
+                  currentElapsedSeconds:
+                      _classificationClock.elapsedMilliseconds / 1000.0,
+                ),
                 _SensorValue(label: 'X', value: _x, unit: 'm/s²'),
                 _SensorValue(label: 'Y', value: _y, unit: 'm/s²'),
                 _SensorValue(label: 'Z', value: _z, unit: 'm/s²'),
@@ -565,4 +589,204 @@ class _SensorValue extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ActivityHistoryPoint {
+  const _ActivityHistoryPoint({
+    required this.elapsedSeconds,
+    required this.label,
+  });
+
+  final double elapsedSeconds;
+  final String label;
+}
+
+class _ActivityHistoryChart extends StatelessWidget {
+  const _ActivityHistoryChart({
+    required this.points,
+    required this.currentElapsedSeconds,
+  });
+
+  final List<_ActivityHistoryPoint> points;
+  final double currentElapsedSeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '行動の変化（直近60秒）',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 220,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _ActivityHistoryPainter(
+                  points: points,
+                  currentElapsedSeconds: currentElapsedSeconds,
+                  lineColor: Theme.of(context).colorScheme.primary,
+                  textColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Text(
+              '横軸: 経過時間　縦軸: 予測した行動',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityHistoryPainter extends CustomPainter {
+  const _ActivityHistoryPainter({
+    required this.points,
+    required this.currentElapsedSeconds,
+    required this.lineColor,
+    required this.textColor,
+  });
+
+  final List<_ActivityHistoryPoint> points;
+  final double currentElapsedSeconds;
+  final Color lineColor;
+  final Color textColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 52.0;
+    const right = 8.0;
+    const top = 12.0;
+    const bottom = 30.0;
+    final plotWidth = size.width - left - right;
+    final plotHeight = size.height - top - bottom;
+    final plotBottom = top + plotHeight;
+
+    final gridPaint = Paint()
+      ..color = textColor.withValues(alpha: 0.18)
+      ..strokeWidth = 1;
+    final axisPaint = Paint()
+      ..color = textColor.withValues(alpha: 0.55)
+      ..strokeWidth = 1;
+
+    for (var level = 0; level <= 2; level++) {
+      final y = plotBottom - (level / 2) * plotHeight;
+      canvas.drawLine(Offset(left, y), Offset(size.width - right, y), gridPaint);
+      _drawText(
+        canvas,
+        ['静止', '歩行', '走行'][level],
+        Offset(0, y - 8),
+        textColor,
+      );
+    }
+    canvas.drawLine(
+      Offset(left, top),
+      Offset(left, plotBottom),
+      axisPaint,
+    );
+
+    final endSeconds = currentElapsedSeconds > 1 ? currentElapsedSeconds : 1.0;
+    final startSeconds = endSeconds > 60 ? endSeconds - 60 : 0.0;
+    final visibleSeconds = endSeconds - startSeconds;
+    for (var tick = 0; tick <= 2; tick++) {
+      final fraction = tick / 2;
+      final x = left + fraction * plotWidth;
+      canvas.drawLine(Offset(x, plotBottom), Offset(x, plotBottom + 4), axisPaint);
+      final seconds = startSeconds + visibleSeconds * fraction;
+      _drawText(
+        canvas,
+        '${seconds.toStringAsFixed(0)}秒',
+        Offset(x - 13, plotBottom + 7),
+        textColor,
+      );
+    }
+
+    if (points.isEmpty) {
+      _drawText(
+        canvas,
+        '予測を開始するとここに表示されます',
+        Offset(left + 8, top + plotHeight / 2 - 8),
+        textColor,
+      );
+      return;
+    }
+
+    double xFor(_ActivityHistoryPoint point) {
+      final fraction =
+          ((point.elapsedSeconds - startSeconds) / visibleSeconds)
+              .clamp(0.0, 1.0)
+              .toDouble();
+      return left + fraction * plotWidth;
+    }
+
+    double? levelFor(String label) => switch (label) {
+          '静止' => 0,
+          '歩行' => 1,
+          '走行' => 2,
+          _ => null,
+        };
+
+    double yFor(double level) => plotBottom - (level / 2) * plotHeight;
+
+    final visiblePoints = points
+        .where((point) => point.elapsedSeconds >= startSeconds)
+        .toList(growable: false);
+    if (visiblePoints.isEmpty) return;
+
+    final path = Path();
+    var hasPoint = false;
+    var previousY = 0.0;
+    for (final point in visiblePoints) {
+      final level = levelFor(point.label);
+      if (level == null) continue;
+      final x = xFor(point);
+      final y = yFor(level);
+      if (!hasPoint) {
+        path.moveTo(x, y);
+        hasPoint = true;
+      } else {
+        // A step line shows that each predicted label remains active until
+        // the next prediction arrives.
+        path.lineTo(x, previousY);
+        path.lineTo(x, y);
+      }
+      previousY = y;
+    }
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(path, linePaint);
+
+    final pointPaint = Paint()..color = lineColor;
+    for (final point in visiblePoints) {
+      final level = levelFor(point.label);
+      if (level == null) continue;
+      canvas.drawCircle(Offset(xFor(point), yFor(level)), 3, pointPaint);
+    }
+  }
+
+  void _drawText(Canvas canvas, String text, Offset offset, Color color) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(color: color, fontSize: 11),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ActivityHistoryPainter oldDelegate) => true;
 }
